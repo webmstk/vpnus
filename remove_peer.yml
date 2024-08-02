@@ -1,0 +1,19 @@
+- name: REMOVE PEER
+  hosts: vpn
+
+  vars:
+    peer_name: laptop
+
+  tasks:
+    - name: Read public peer key
+      ansible.builtin.shell: cat {{ ansible_env.HOME }}/wg/{{ peer_name }}/public.key
+      register: public_peer_key
+
+    - name: Remove peer from wireguard
+      become: true
+      ansible.builtin.shell: "wg set wg0 peer {{ public_peer_key.stdout }} remove"
+
+    - name: Delete peer directory
+      ansible.builtin.file:
+        path: "{{ ansible_env.HOME }}/wg/{{ peer_name }}"
+        state: absent

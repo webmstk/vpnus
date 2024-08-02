@@ -1,0 +1,102 @@
+- name: ADD PEER
+  hosts: vpn
+
+  vars:
+    peer_name: laptop
+    peer_address: 10.8.0.2
+
+  tasks:
+    - name: Install qrencode
+      become: true
+      ansible.builtin.apt:
+        name: qrencode
+
+    - name: Create peer directory
+      ansible.builtin.file:
+        path: "{{ ansible_env.HOME }}/wg/{{ peer_name }}"
+        state: directory
+
+    - name: Copy peer.conf
+      ansible.builtin.copy:
+        src: files/peer.conf
+        dest: "{{ ansible_env.HOME }}/wg/{{ peer_name }}/{{ peer_name }}.conf"
+
+    - name: Generate wireguard private key
+      ansible.builtin.shell: wg genkey | tee {{ ansible_env.HOME }}/wg/{{ peer_name }}/private.key
+      args:
+        creates: "{{ ansible_env.HOME }}/wg/{{ peer_name }}/private.key"
+
+    - name: Generate wireguard public key
+      ansible.builtin.shell: cat {{ ansible_env.HOME }}/wg/{{ peer_name }}/private.key | wg pubkey | tee {{ ansible_env.HOME }}/wg/{{ peer_name }}/public.key
+      args:
+        creates: "{{ ansible_env.HOME }}/wg/{{ peer_name }}/public.key"
+
+    - name: Read public server key
+      become: true
+      ansible.builtin.shell: cat /etc/wireguard/public.key
+      register: public_server_key
+
+    - name: Insert public server key to peer .conf
+      ansible.builtin.lineinfile:
+        path: "{{ ansible_env.HOME }}/wg/{{ peer_name }}/{{ peer_name }}.conf"
+        regexp: '^PublicKey ='
+        line: "PublicKey = {{ public_server_key.stdout }}"
+
+    - name: Read private peer key
+      ansible.builtin.shell: cat {{ ansible_env.HOME }}/wg/{{ peer_name }}/private.key
+      register: private_peer_key
+
+    - name: Insert private peer key to peer .conf
+      ansible.builtin.lineinfile:
+        path: "{{ ansible_env.HOME }}/wg/{{ peer_name }}/{{ peer_name }}.conf"
+        regexp: '^PrivateKey ='
+        line: "PrivateKey = {{ private_peer_key.stdout }}"
+
+    - name: Insert address to peer .conf
+      ansible.builtin.lineinfile:
+        path: "{{ ansible_env.HOME }}/wg/{{ peer_name }}/{{ peer_name }}.conf"
+        regexp: '^Address ='
+        line: "Address = {{ peer_address }}/24"
+
+    - name: Insert host to peer .conf
+      ansible.builtin.lineinfile:
+        path: "{{ ansible_env.HOME }}/wg/{{ peer_name }}/{{ peer_name }}.conf"
+        regexp: '^Endpoint ='
+        line: "Endpoint = {{ hostvars.vpnus.ansible_host }}:{{ wg_port }}"
+
+    - name: Insert dns to peer .conf
+      ansible.builtin.lineinfile:
+        path: "{{ ansible_env.HOME }}/wg/{{ peer_name }}/{{ peer_name }}.conf"
+        regexp: '^DNS ='
+        line: "DNS = {{ dns }}"
+
+    - name: Read public peer key
+      ansible.builtin.shell: cat {{ ansible_env.HOME }}/wg/{{ peer_name }}/public.key
+      register: public_peer_key
+
+    # --- START WITH PRESHARED KEY ---
+
+    - name: Read preshared key
+      become: true
+      ansible.builtin.shell: cat /etc/wireguard/presharedkey
+      register: preshared_key
+
+    - name: Insert preshared peer key to peer .conf
+      ansible.builtin.lineinfile:
+        path: "{{ ansible_env.HOME }}/wg/{{ peer_name }}/{{ peer_name }}.conf"
+        regexp: '^PresharedKey ='
+        line: "PresharedKey = {{ preshared_key.stdout }}"
+
+    - name: Add peer to wireguard
+      become: true
+      ansible.builtin.shell: "wg set wg0 peer {{ public_peer_key.stdout }} allowed-ips {{ peer_address }} preshared-key /etc/wireguard/presharedkey"
+
+    # --- END WITH PRESHARED KEY ---
+
+    # --- START WITHOUT PRESHARED KEY ---
+
+    # - name: Add peer to wireguard
+    #   become: true
+    #   ansible.builtin.shell: "wg set wg0 peer {{ public_peer_key.stdout }} allowed-ips {{ peer_address }}"
+
+    # --- END WITHOUT PRESHARED KEY ---

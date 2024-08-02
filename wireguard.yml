@@ -1,0 +1,135 @@
+- name: VPN SETUPER
+  hosts: vpn
+
+  vars:
+    peer_address: 10.8.0.1
+
+  tasks:
+    - name: Update and upgrade apt packages
+      become: true
+      apt:
+        upgrade: yes
+        update_cache: yes
+
+    - name: Allow SSH port
+      become: true
+      ufw:
+        rule: allow
+        name: OpenSSH
+
+    - name: Allow port for wg
+      become: true
+      ufw:
+        rule: allow
+        port: '{{ wg_port }}'
+        proto: udp
+
+    - name: Enable UFW
+      become: true
+      ufw:
+        state: enabled
+
+    - name: Install wireguard
+      become: true
+      ansible.builtin.apt:
+        name: wireguard
+
+    - name: Generate wireguard private key
+      become: true
+      ansible.builtin.shell: wg genkey | sudo tee /etc/wireguard/private.key
+      args:
+        creates: /etc/wireguard/private.key
+
+    - name: Set mode go= to private.key
+      become: true
+      ansible.builtin.file:
+        path: /etc/wireguard/private.key
+        mode: go=
+
+    - name: Generate wireguard public key
+      become: true
+      ansible.builtin.shell: cat /etc/wireguard/private.key | wg pubkey | sudo tee /etc/wireguard/public.key
+      args:
+        creates: /etc/wireguard/public.key
+
+    - name: Copy wg0.conf
+      become: true
+      ansible.builtin.copy:
+        src: files/wg0.conf
+        dest: /etc/wireguard/wg0.conf
+
+    - name: Insert Address to wg0.conf
+      become: true
+      ansible.builtin.lineinfile:
+        path: /etc/wireguard/wg0.conf
+        regexp: '^Address ='
+        line: "Address = {{ peer_address }}/24"
+
+    - name: Insert ListenPort to wg0.conf
+      become: true
+      ansible.builtin.lineinfile:
+        path: /etc/wireguard/wg0.conf
+        regexp: '^ListenPort ='
+        line: "ListenPort = {{ wg_port }}"
+
+    - name: Read private key
+      become: true
+      ansible.builtin.shell: cat /etc/wireguard/private.key
+      register: private_key
+
+    - name: Insert private key to wg0.conf
+      become: true
+      ansible.builtin.lineinfile:
+        path: /etc/wireguard/wg0.conf
+        regexp: '^PrivateKey ='
+        line: "PrivateKey = {{ private_key.stdout }}"
+
+    - name: Generate wireguard preshared key
+      become: true
+      ansible.builtin.shell: wg genpsk > /etc/wireguard/presharedkey
+      args:
+        creates: /etc/wireguard/presharedkey
+
+    - name: Insert PostUp ufw to wg0.conf
+      become: true
+      ansible.builtin.lineinfile:
+        path: /etc/wireguard/wg0.conf
+        regexp: '^PostUp = ufw'
+        line: "PostUp = ufw route allow in on wg0 out on {{ public_interface }}"
+
+    - name: Insert PostUp iptables to wg0.conf
+      become: true
+      ansible.builtin.lineinfile:
+        path: /etc/wireguard/wg0.conf
+        regexp: '^PostUp = iptables'
+        line: "PostUp = iptables -t nat -I POSTROUTING -o {{ public_interface }} -j MASQUERADE"
+
+    - name: Insert PreDown ufw to wg0.conf
+      become: true
+      ansible.builtin.lineinfile:
+        path: /etc/wireguard/wg0.conf
+        regexp: '^PreDown = ufw'
+        line: "PreDown = ufw route delete allow in on wg0 out on {{ public_interface }}"
+
+    - name: Insert PreDown iptables to wg0.conf
+      become: true
+      ansible.builtin.lineinfile:
+        path: /etc/wireguard/wg0.conf
+        regexp: '^PreDown = iptables'
+        line: "PreDown = iptables -t nat -D POSTROUTING -o {{ public_interface }} -j MASQUERADE"
+
+    - name: Enable ip forwarding
+      become: true
+      ansible.posix.sysctl:
+        name: net.ipv4.ip_forward
+        value: '1'
+        sysctl_set: true
+        state: present
+        reload: true
+
+    - name: Enable wg0.service
+      become: true
+      ansible.builtin.systemd_service:
+        name: wg-quick@wg0.service
+        state: started
+        enabled: true

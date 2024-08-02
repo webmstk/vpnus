@@ -1,0 +1,8 @@
+wg_port: 51820
+
+dns: 1.1.1.1, 1.0.0.1
+
+# on the remote server:
+# > ip route list default
+# (follows the word 'dev')
+public_interface: eth0
