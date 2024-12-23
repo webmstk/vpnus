@@ -16,7 +16,7 @@ Log to remote server and create user:
 adduser <user>
 usermod -aG sudo <user>
 ```
-Copy your local ~/.ssh/id_rsa.pub to remote ~/.ssh/known_hosts
+Copy your local ~/.ssh/id_rsa.pub to remote ~/.ssh/authorized_keys
 
 ### Step 2. Configure ansible.
 ```
@@ -32,7 +32,7 @@ Check vars.yml
 
 Install and set up wireguard:
 ```
-ansible-playbook -i inventory.yml wirequard.yml -e @vars.yml -K
+ansible-playbook -i inventory.yml wireguard.yml -e @vars.yml -K
 ```
 
 ### Step 4. Generate peer config for client (and feed it to the wireguard server).
